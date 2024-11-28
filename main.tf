@@ -312,7 +312,7 @@ resource "aws_ecs_task_definition" "ecs_task" {
   }])
 }
 
-resource "aws_lb" "my_alb" {
+resource "aws_lb" "devops_alb" {
   name               = "my-alb"
   internal           = false
   load_balancer_type = "application"
@@ -321,21 +321,21 @@ resource "aws_lb" "my_alb" {
   enable_deletion_protection = false
 }
 
-resource "aws_lb_target_group" "tg_80" {
+resource "aws_lb_target_group" "target_80" {
   name     = "tg-80"
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 }
 
-resource "aws_lb_target_group" "tg_3000" {
+resource "aws_lb_target_group" "target_3000" {
   name     = "tg-3000"
   port     = 3000
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 }
 
-resource "aws_lb_listener" "my_listener" {
+resource "aws_lb_listener" "devops-listener" {
   load_balancer_arn = aws_lb.my_alb.arn
   port              = 80
   protocol          = "HTTP"
@@ -350,7 +350,7 @@ resource "aws_lb_listener" "my_listener" {
   }
 }
 
-resource "aws_lb_listener_rule" "rule_tg_80" {
+resource "aws_lb_listener_rule" "rule_target_80" {
   listener_arn = aws_lb_listener.my_listener.arn
 
   action {
@@ -364,7 +364,7 @@ resource "aws_lb_listener_rule" "rule_tg_80" {
   }
 }
 
-resource "aws_lb_listener_rule" "rule_tg_3000" {
+resource "aws_lb_listener_rule" "rule_target_3000" {
   listener_arn = aws_lb_listener.my_listener.arn
 
   action {
