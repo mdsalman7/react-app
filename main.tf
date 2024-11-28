@@ -118,43 +118,6 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-# ECS Security Group (Renamed to avoid duplication)
-resource "aws_security_group" "ecs_sg_new" {
-  vpc_id = aws_vpc.devops_vpc.id
-
-  ingress {
-    from_port       = 3000
-    to_port         = 3000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
-  }
-
-  ingress {
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
-  }
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.9.97/32"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "ecs-sg-new"
-  }
-}
-
 # Load Balancer
 resource "aws_lb" "my_alb" {
   name               = "my-alb"
@@ -249,24 +212,23 @@ resource "aws_lb_listener_rule" "rule_tg_3000" {
   }
 }
 
-
-
-# EC2 Instances (Jump Server and ECS)
+# EC2 Instance (Jump Server)
 resource "aws_instance" "jump_server" {
   ami             = "ami-0dee22c13ea7a9a67"
   instance_type   = "t2.micro"
   subnet_id       = aws_subnet.public_1a.id
-  security_group_ids = [aws_security_group.jump_sg.id] # Change this line
+  security_group_ids = [aws_security_group.alb_sg.id] # Correct security group
   tags = {
     Name = "jump-server"
   }
 }
 
+# ECS Instance
 resource "aws_instance" "ecs_instance" {
   ami             = "ami-0dee22c13ea7a9a67" # Example AMI for ECS
   instance_type   = "t2.micro"
   subnet_id       = aws_subnet.private_1a.id
-  security_groups = [aws_security_group.ecs_sg.name]
+  security_groups = [aws_security_group.alb_sg.id] # Correct security group
   tags = {
     Name = "ecs-instance"
   }
@@ -289,10 +251,15 @@ resource "aws_iam_role" "ecs_execution_role" {
         Service = "ecs-tasks.amazonaws.com"
       }
       Effect   = "Allow"
-      Sid      = ""
     }]
   })
 }
+
+resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
+  role       = aws_iam_role.ecs_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
 
 resource "aws_iam_role" "ecs_task_role" {
   name = "ecs-task-role"
