@@ -120,19 +120,17 @@ resource "aws_security_group" "alb_sg" {
 
 # Load Balancer
 resource "aws_lb" "my_alb" {
-  name               = "my-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = [aws_subnet.public_1a.id, aws_subnet.public_1b.id]
-
-  enable_deletion_protection = false
+  name                        = "my-alb"
+  internal                    = false
+  load_balancer_type          = "application"
+  security_groups             = [aws_security_group.alb_sg.id]
+  subnets                     = [aws_subnet.public_1a.id, aws_subnet.public_1b.id]
+  enable_deletion_protection  = false
   enable_cross_zone_load_balancing = true
-  enable_http2              = true
-  idle_timeout {
-    seconds = 60
-  }
+  enable_http2                = true
+  idle_timeout_seconds        = 60  # Correct argument syntax
 }
+
 
 # Target Group for HTTP (80)
 resource "aws_lb_target_group" "tg_80" {
@@ -214,14 +212,15 @@ resource "aws_lb_listener_rule" "rule_tg_3000" {
 
 # EC2 Instance (Jump Server)
 resource "aws_instance" "jump_server" {
-  ami             = "ami-0dee22c13ea7a9a67"
-  instance_type   = "t2.micro"
-  subnet_id       = aws_subnet.public_1a.id
-  security_group_ids = [aws_security_group.alb_sg.id] # Correct security group
+  ami                  = "ami-0dee22c13ea7a9a67"
+  instance_type        = "t2.micro"
+  subnet_id            = aws_subnet.public_1a.id
+  security_groups      = [aws_security_group.alb_sg.name] # Correct argument
   tags = {
     Name = "jump-server"
   }
 }
+
 
 # ECS Instance
 resource "aws_instance" "ecs_instance" {
@@ -325,14 +324,14 @@ resource "aws_lb_target_group" "target_80" {
   name     = "tg-80"
   port     = 80
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = aws_vpc.devops_vpc.id  # Correct reference
 }
 
 resource "aws_lb_target_group" "target_3000" {
   name     = "tg-3000"
   port     = 3000
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = aws_vpc.devops_vpc.id  # Correct reference
 }
 
 resource "aws_lb_listener" "devops-listener" {
