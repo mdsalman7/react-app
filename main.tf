@@ -42,8 +42,8 @@ resource "aws_nat_gateway" "nat_gateway" {
 
 resource "aws_eip" "nat_eip" {
   vpc = true
-  domain = "vpc" # Warning corrected: use domain instead of vpc
 }
+
 
 # ECS Cluster
 resource "aws_ecs_cluster" "ecs_cluster" {
