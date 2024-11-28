@@ -20,16 +20,17 @@ resource "aws_internet_gateway" "igw" {
   }
 }
 
-# Public Subnets
-resource "aws_subnet" "public_1a" {
-  vpc_id                = aws_vpc.devops_vpc.id
-  cidr_block            = "10.0.1.0/24"
+# Remove this section if it's not necessary, or rename it:
+resource "aws_subnet" "public_1a_nat" {  # Renamed to avoid duplication
+  vpc_id                  = aws_vpc.devops_vpc.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "ap-south-1a"
   map_public_ip_on_launch = true
-  availability_zone     = "ap-south-1a"
   tags = {
-    Name = "public-1a"
+    Name = "public-1a-nat"
   }
 }
+
 
 resource "aws_subnet" "public_1b" {
   vpc_id                = aws_vpc.devops_vpc.id
@@ -173,7 +174,8 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-resource "aws_security_group" "ecs_sg" {
+# Rename the second security group to avoid duplication
+resource "aws_security_group" "ecs_sg_new" {  # Renamed
   vpc_id = aws_vpc.devops_vpc.id
 
   ingress {
@@ -205,9 +207,10 @@ resource "aws_security_group" "ecs_sg" {
   }
 
   tags = {
-    Name = "ecs-sg"
+    Name = "ecs-sg-new"
   }
 }
+
 
 resource "aws_security_group" "jump_sg" {
   vpc_id = aws_vpc.devops_vpc.id
@@ -231,15 +234,31 @@ resource "aws_security_group" "jump_sg" {
   }
 }
 
-# ALB Target Groups
+resource "aws_lb" "my_alb" {
+  name               = "my-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.my_sg.id]
+  subnets            = [aws_subnet.subnet_a.id, aws_subnet.subnet_b.id]
+
+  enable_deletion_protection = false
+  enable_cross_zone_load_balancing = true
+  enable_http2              = true
+  idle_timeout {
+    seconds = 60
+  }
+}
+
 resource "aws_lb_target_group" "tg_80" {
   name     = "tg-80"
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.devops_vpc.id
+
   health_check {
     path = "/"
   }
+
   tags = {
     Name = "tg-80"
   }
@@ -250,13 +269,62 @@ resource "aws_lb_target_group" "tg_3000" {
   port     = 3000
   protocol = "HTTP"
   vpc_id   = aws_vpc.devops_vpc.id
+
   health_check {
     path = "/"
   }
+
   tags = {
     Name = "tg-3000"
   }
 }
+
+resource "aws_lb_listener" "my_listener" {
+  load_balancer_arn = aws_lb.my_alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "fixed-response"
+    fixed_response {
+      status_code = 200
+      content_type = "text/plain"
+      message_body = "OK"
+    }
+  }
+}
+
+# Listener Rule for Target Group tg-80
+resource "aws_lb_listener_rule" "rule_tg_80" {
+  listener_arn = aws_lb_listener.my_listener.arn
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg_80.arn
+  }
+
+  condition {
+    field  = "path-pattern"
+    values = ["/app1/*"]
+  }
+}
+
+# Listener Rule for Target Group tg-3000
+resource "aws_lb_listener_rule" "rule_tg_3000" {
+  listener_arn = aws_lb_listener.my_listener.arn
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg_3000.arn
+  }
+
+  condition {
+    field  = "path-pattern"
+    values = ["/app2/*"]
+  }
+}
+
+
 
 # EC2 Instances (Jump Server and ECS)
 resource "aws_instance" "jump_server" {
@@ -317,7 +385,6 @@ resource "aws_iam_role" "ecs_task_role" {
   })
 }
 
-# ECS Task Definition
 resource "aws_ecs_task_definition" "ecs_task" {
   family                   = "ecs-task-family"
   network_mode             = "awsvpc"
@@ -345,7 +412,7 @@ resource "aws_ecs_task_definition" "ecs_task" {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        "awslogs-group"         = "/ecs/web-app"
+        "awslogs-group"         = "/ecs/web-container"
         "awslogs-region"        = "ap-south-1"
         "awslogs-stream-prefix" = "ecs"
       }
@@ -353,29 +420,99 @@ resource "aws_ecs_task_definition" "ecs_task" {
   }])
 }
 
-# Security Group for ECS
-resource "aws_security_group" "ecs_sg" {
-  name   = "ecs-sg"
-  vpc_id = aws_vpc.devops_vpc.id
+resource "aws_lb" "my_alb" {
+  name               = "my-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups   = [aws_security_group.alb_sg.id]
+  subnets            = [aws_subnet.private_1a.id]
+  enable_deletion_protection = false
+}
 
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.9.97/32"]
+resource "aws_lb_target_group" "tg_80" {
+  name     = "tg-80"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+}
+
+resource "aws_lb_target_group" "tg_3000" {
+  name     = "tg-3000"
+  port     = 3000
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+}
+
+resource "aws_lb_listener" "my_listener" {
+  load_balancer_arn = aws_lb.my_alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "fixed-response"
+    fixed_response {
+      status_code = 200
+      content_type = "text/plain"
+      message_body = "OK"
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "rule_tg_80" {
+  listener_arn = aws_lb_listener.my_listener.arn
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg_80.arn
   }
 
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  condition {
+    field  = "path-pattern"
+    values = ["/app1/*"]
+  }
+}
+
+resource "aws_lb_listener_rule" "rule_tg_3000" {
+  listener_arn = aws_lb_listener.my_listener.arn
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg_3000.arn
   }
 
-  ingress {
-    from_port   = 3000
-    to_port     = 3000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  condition {
+    field  = "path-pattern"
+    values = ["/app2/*"]
   }
+}
+
+resource "aws_ecs_service" "ecs_service" {
+  name            = "ecs-service"
+  cluster         = aws_ecs_cluster.ecs_cluster.id
+  task_definition = aws_ecs_task_definition.ecs_task.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [aws_subnet.private_1a.id]
+    security_groups = [aws_security_group.ecs_sg.name]
+    assign_public_ip = false
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tg_80.arn
+    container_name   = "web-container"
+    container_port   = 80
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tg_3000.arn
+    container_name   = "web-container"
+    container_port   = 3000
+  }
+
+  depends_on = [
+    aws_lb_listener_rule.rule_tg_80,
+    aws_lb_listener_rule.rule_tg_3000
+  ]
 }
