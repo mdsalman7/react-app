@@ -20,18 +20,18 @@ resource "aws_internet_gateway" "igw" {
   }
 }
 
-# Remove this section if it's not necessary, or rename it:
-resource "aws_subnet" "public_1a_nat" {  # Renamed to avoid duplication
+# Public Subnet 1
+resource "aws_subnet" "public_1a" {
   vpc_id                  = aws_vpc.devops_vpc.id
   cidr_block              = "10.0.1.0/24"
   availability_zone       = "ap-south-1a"
   map_public_ip_on_launch = true
   tags = {
-    Name = "public-1a-nat"
+    Name = "public-1a"
   }
 }
 
-
+# Public Subnet 2
 resource "aws_subnet" "public_1b" {
   vpc_id                = aws_vpc.devops_vpc.id
   cidr_block            = "10.0.2.0/24"
@@ -41,6 +41,7 @@ resource "aws_subnet" "public_1b" {
     Name = "public-1b"
   }
 }
+
 # Private Subnet
 resource "aws_subnet" "private_1a" {
   vpc_id                  = aws_vpc.devops_vpc.id
@@ -55,17 +56,6 @@ resource "aws_subnet" "private_1a" {
 # Elastic IP for NAT Gateway
 resource "aws_eip" "nat_eip" {
   domain = "vpc"
-}
-
-# Public Subnet for NAT Gateway (already exists)
-resource "aws_subnet" "public_1a" {
-  vpc_id                  = aws_vpc.devops_vpc.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-south-1a"
-  map_public_ip_on_launch = true
-  tags = {
-    Name = "public-1a"
-  }
 }
 
 # NAT Gateway
@@ -98,52 +88,6 @@ resource "aws_route_table_association" "private_subnet_association" {
   route_table_id = aws_route_table.private_route_table.id
 }
 
-
-# Route Table for Public Subnets
-resource "aws_route_table" "public_rt" {
-  vpc_id = aws_vpc.devops_vpc.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
-  }
-
-  tags = {
-    Name = "public-rt"
-  }
-}
-
-# Public Route Table Associations
-resource "aws_route_table_association" "public_rt_1a" {
-  subnet_id      = aws_subnet.public_1a.id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-resource "aws_route_table_association" "public_rt_1b" {
-  subnet_id      = aws_subnet.public_1b.id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-# Route Table for Private Subnet
-resource "aws_route_table" "private_rt" {
-  vpc_id = aws_vpc.devops_vpc.id
-
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gw.id
-  }
-
-  tags = {
-    Name = "private-rt"
-  }
-}
-
-# Private Route Table Association
-resource "aws_route_table_association" "private_rt_1a" {
-  subnet_id      = aws_subnet.private_1a.id
-  route_table_id = aws_route_table.private_rt.id
-}
-
 # Security Groups
 resource "aws_security_group" "alb_sg" {
   vpc_id = aws_vpc.devops_vpc.id
@@ -174,8 +118,8 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-# Rename the second security group to avoid duplication
-resource "aws_security_group" "ecs_sg_new" {  # Renamed
+# ECS Security Group (Renamed to avoid duplication)
+resource "aws_security_group" "ecs_sg_new" {
   vpc_id = aws_vpc.devops_vpc.id
 
   ingress {
@@ -211,35 +155,13 @@ resource "aws_security_group" "ecs_sg_new" {  # Renamed
   }
 }
 
-
-resource "aws_security_group" "jump_sg" {
-  vpc_id = aws_vpc.devops_vpc.id
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "jump-sg"
-  }
-}
-
+# Load Balancer
 resource "aws_lb" "my_alb" {
   name               = "my-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.my_sg.id]
-  subnets            = [aws_subnet.subnet_a.id, aws_subnet.subnet_b.id]
+  security_groups    = [aws_security_group.alb_sg.id]
+  subnets            = [aws_subnet.public_1a.id, aws_subnet.public_1b.id]
 
   enable_deletion_protection = false
   enable_cross_zone_load_balancing = true
@@ -249,6 +171,7 @@ resource "aws_lb" "my_alb" {
   }
 }
 
+# Target Group for HTTP (80)
 resource "aws_lb_target_group" "tg_80" {
   name     = "tg-80"
   port     = 80
@@ -264,6 +187,7 @@ resource "aws_lb_target_group" "tg_80" {
   }
 }
 
+# Target Group for HTTP (3000)
 resource "aws_lb_target_group" "tg_3000" {
   name     = "tg-3000"
   port     = 3000
@@ -279,6 +203,7 @@ resource "aws_lb_target_group" "tg_3000" {
   }
 }
 
+# Load Balancer Listener
 resource "aws_lb_listener" "my_listener" {
   load_balancer_arn = aws_lb.my_alb.arn
   port              = 80
