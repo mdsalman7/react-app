@@ -151,14 +151,14 @@ resource "aws_security_group" "ecs_sg" {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    security_group_id = aws_security_group.alb_sg.id
   }
 
   ingress {
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    security_group_id = aws_security_group.alb_sg.id
   }
 
   egress {
@@ -185,13 +185,13 @@ resource "aws_lb" "my_alb" {
   enable_http2                = true
 }
 
-# Target Group for HTTP (80) - Updated for Fargate
+# Target Groups
 resource "aws_lb_target_group" "tg_80" {
   name        = "tg-80"
   port        = 80
   protocol    = "HTTP"
   vpc_id      = aws_vpc.devops_vpc.id
-  target_type = "ip"  # Changed to ip for Fargate
+  target_type = "instance"
 
   health_check {
     path                = "/"
@@ -206,13 +206,12 @@ resource "aws_lb_target_group" "tg_80" {
   }
 }
 
-# Target Group for HTTP (3000) - Updated for Fargate
 resource "aws_lb_target_group" "tg_3000" {
   name        = "tg-3000"
   port        = 3000
   protocol    = "HTTP"
   vpc_id      = aws_vpc.devops_vpc.id
-  target_type = "ip"  # Changed to ip for Fargate
+  target_type = "instance"
 
   health_check {
     path                = "/"
@@ -243,7 +242,7 @@ resource "aws_lb_listener" "my_listener" {
   }
 }
 
-# Listener Rule for Target Group tg-80
+# Listener Rules
 resource "aws_lb_listener_rule" "rule_tg_80" {
   listener_arn = aws_lb_listener.my_listener.arn
 
@@ -259,7 +258,6 @@ resource "aws_lb_listener_rule" "rule_tg_80" {
   }
 }
 
-# Listener Rule for Target Group tg-3000
 resource "aws_lb_listener_rule" "rule_tg_3000" {
   listener_arn = aws_lb_listener.my_listener.arn
 
@@ -281,17 +279,25 @@ resource "aws_instance" "jump_server" {
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.public_1a.id
   vpc_security_group_ids = [aws_security_group.alb_sg.id]
+  key_name               = "jump-server"
   tags = {
     Name = "jump-server"
   }
 }
 
-# ECS Instance
+# ECS Optimized Amazon Linux 2 AMI (EC2)
 resource "aws_instance" "ecs_instance" {
-  ami                    = "ami-0dee22c13ea7a9a67" # Example AMI for ECS
+  ami                    = "ami-0c29476f4e61c9cdb"  # ECS-Optimized Amazon Linux 2 AMI for ap-south-1
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.private_1a.id
   vpc_security_group_ids = [aws_security_group.ecs_sg.id]
+  key_name               = "jump-server"
+  iam_instance_profile   = aws_iam_instance_profile.ecs_instance_profile.name
+  user_data              = <<-EOF
+              #!/bin/bash
+              echo ECS_CLUSTER=${aws_ecs_cluster.ecs_cluster.name} >> /etc/ecs/ecs.config
+              EOF
+
   tags = {
     Name = "ecs-instance"
   }
@@ -300,6 +306,36 @@ resource "aws_instance" "ecs_instance" {
 # ECS Cluster
 resource "aws_ecs_cluster" "ecs_cluster" {
   name = "ecs-cluster"
+}
+
+# IAM Role for ECS EC2 Instance
+resource "aws_iam_role" "ecs_instance_role" {
+  name = "ecs-instance-role"
+  
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# IAM Policy for ECS EC2 Instance
+resource "aws_iam_role_policy_attachment" "ecs_instance_role_policy" {
+  role       = aws_iam_role.ecs_instance_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+}
+
+# IAM Instance Profile for ECS EC2 Instance
+resource "aws_iam_instance_profile" "ecs_instance_profile" {
+  name = "ecs-instance-profile"
+  role = aws_iam_role.ecs_instance_role.name
 }
 
 # IAM Roles for ECS Task Execution
@@ -323,6 +359,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# IAM Task Role
 resource "aws_iam_role" "ecs_task_role" {
   name = "ecs-task-role"
 
@@ -338,10 +375,11 @@ resource "aws_iam_role" "ecs_task_role" {
     }]
   })
 }
+
 # CloudWatch Log Group for ECS Container Logs
 resource "aws_cloudwatch_log_group" "ecs_log_group" {
   name              = "/ecs/web-container"
-  retention_in_days = 30  # Adjust retention as needed
+  retention_in_days = 30
 
   tags = {
     Name        = "ecs-web-container-logs"
@@ -368,11 +406,12 @@ resource "aws_iam_role_policy" "ecs_cloudwatch_logs_policy" {
     ]
   })
 }
-# Update ECS Task Definition to ensure compatibility with Fargate
+
+# ECS Task Definition for EC2
 resource "aws_ecs_task_definition" "ecs_task" {
   family                   = "ecs-task-family"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
+  network_mode             = "bridge"
+  requires_compatibilities = ["EC2"]
   cpu                      = "256"
   memory                   = "512"
   execution_role_arn       = aws_iam_role.ecs_execution_role.arn
@@ -405,21 +444,87 @@ resource "aws_ecs_task_definition" "ecs_task" {
   }])
 }
 
-# Update ECS Service for Fargate
+# Continue from the previous configuration...
+
+# ECS Capacity Provider
+resource "aws_ecs_capacity_provider" "ecs_capacity_provider" {
+  name = "ecs-capacity-provider"
+
+  auto_scaling_group_provider {
+    auto_scaling_group_arn = aws_autoscaling_group.ecs_asg.arn
+    managed_scaling {
+      maximum_scaling_step_size = 1000
+      minimum_scaling_step_size = 1
+      status                    = "ENABLED"
+      target_capacity           = 100
+    }
+  }
+}
+
+# Attach Capacity Provider to ECS Cluster
+resource "aws_ecs_cluster_capacity_providers" "example" {
+  cluster_name = aws_ecs_cluster.ecs_cluster.name
+
+  capacity_providers = [aws_ecs_capacity_provider.ecs_capacity_provider.name]
+
+  default_capacity_provider_strategy {
+    base              = 1
+    weight            = 100
+    capacity_provider = aws_ecs_capacity_provider.ecs_capacity_provider.name
+  }
+}
+
+# Launch Template for ECS Instances
+resource "aws_launch_template" "ecs_launch_template" {
+  name_prefix   = "ecs-launch-template"
+  image_id      = "ami-0c29476f4e61c9cdb"  # ECS-Optimized Amazon Linux 2 AMI for ap-south-1
+  instance_type = "t2.micro"
+
+  network_interfaces {
+    associate_public_ip_address = false
+    security_groups             = [aws_security_group.ecs_sg.id]
+  }
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ecs_instance_profile.name
+  }
+
+  user_data = base64encode(<<-EOF
+              #!/bin/bash
+              echo ECS_CLUSTER=${aws_ecs_cluster.ecs_cluster.name} >> /etc/ecs/ecs.config
+              EOF
+  )
+
+  key_name = "jump-server"
+}
+
+# Auto Scaling Group for ECS Instances
+resource "aws_autoscaling_group" "ecs_asg" {
+  desired_capacity    = 1
+  max_size            = 3
+  min_size            = 1
+  vpc_zone_identifier = [aws_subnet.private_1a.id]
+
+  launch_template {
+    id      = aws_launch_template.ecs_launch_template.id
+    version = "$Latest"
+  }
+
+  tag {
+    key                 = "AmazonECSManaged"
+    value               = true
+    propagate_at_launch = true
+  }
+}
+
+# Updated ECS Service Configuration
 resource "aws_ecs_service" "ecs_service" {
   name            = "ecs-service"
   cluster         = aws_ecs_cluster.ecs_cluster.id
   task_definition = aws_ecs_task_definition.ecs_task.arn
   desired_count   = 1
-  launch_type     = "FARGATE"
+  launch_type     = "EC2"
 
-  network_configuration {
-    subnets          = [aws_subnet.private_1a.id]
-    security_groups  = [aws_security_group.ecs_sg.id]
-    assign_public_ip = false
-  }
-
-  # Multiple load balancer configurations for different target groups
   load_balancer {
     target_group_arn = aws_lb_target_group.tg_80.arn
     container_name   = "web-container"
@@ -432,8 +537,25 @@ resource "aws_ecs_service" "ecs_service" {
     container_port   = 3000
   }
 
-  depends_on = [
-    aws_lb_listener_rule.rule_tg_80,
-    aws_lb_listener_rule.rule_tg_3000
-  ]
+  # Ensure the service waits for the capacity provider to be ready
+  depends_on = [aws_ecs_cluster_capacity_providers.example]
+}
+
+# Optional: Add CloudWatch Alarms for Auto Scaling
+resource "aws_cloudwatch_metric_alarm" "ecs_asg_high_cpu" {
+  alarm_name          = "ecs-asg-high-cpu"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "120"
+  statistic           = "Average"
+  threshold           = "80"
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.ecs_asg.name
+  }
+
+  alarm_description = "This metric monitors EC2 CPU utilization"
+  alarm_actions     = [] # Optionally add SNS topic or Auto Scaling action
 }
