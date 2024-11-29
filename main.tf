@@ -205,10 +205,10 @@ resource "aws_lb_listener_rule" "rule_tg_80" {
   }
 
   condition {
-    field  = "path-pattern"
-    values = ["/app1/*"]
+    path_pattern {
+      values = ["/app1/*"]
+    }
   }
-}
 
 # Listener Rule for Target Group tg-3000
 resource "aws_lb_listener_rule" "rule_tg_3000" {
@@ -220,10 +220,10 @@ resource "aws_lb_listener_rule" "rule_tg_3000" {
   }
 
   condition {
-    field  = "path-pattern"
-    values = ["/app2/*"]
+    path_pattern {
+      values = ["/app2/*"]
+    }
   }
-}
 
 # EC2 Instance (Jump Server)
 resource "aws_instance" "jump_server" {
@@ -373,10 +373,10 @@ resource "aws_lb_listener_rule" "rule_target_80" {
   }
 
   condition {
-    field  = "path-pattern"
-    values = ["/app1/*"]
+    path_pattern {
+      values = ["/app1/*"]
+    }
   }
-}
 
 resource "aws_lb_listener_rule" "rule_target_3000" {
   listener_arn = aws_lb_listener.my_listener.arn
@@ -387,10 +387,10 @@ resource "aws_lb_listener_rule" "rule_target_3000" {
   }
 
   condition {
-    field  = "path-pattern"
-    values = ["/app2/*"]
+    path_pattern {
+      values = ["/app1/*"]
+    }
   }
-}
 
 resource "aws_ecs_service" "ecs_service" {
   name            = "ecs-service"
