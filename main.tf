@@ -185,15 +185,20 @@ resource "aws_lb" "my_alb" {
   enable_http2                = true
 }
 
-# Target Group for HTTP (80)
+# Target Group for HTTP (80) - Updated for Fargate
 resource "aws_lb_target_group" "tg_80" {
-  name     = "tg-80"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.devops_vpc.id
+  name        = "tg-80"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.devops_vpc.id
+  target_type = "ip"  # Changed to ip for Fargate
 
   health_check {
-    path = "/"
+    path                = "/"
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
   }
 
   tags = {
@@ -201,15 +206,20 @@ resource "aws_lb_target_group" "tg_80" {
   }
 }
 
-# Target Group for HTTP (3000)
+# Target Group for HTTP (3000) - Updated for Fargate
 resource "aws_lb_target_group" "tg_3000" {
-  name     = "tg-3000"
-  port     = 3000
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.devops_vpc.id
+  name        = "tg-3000"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.devops_vpc.id
+  target_type = "ip"  # Changed to ip for Fargate
 
   health_check {
-    path = "/"
+    path                = "/"
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
   }
 
   tags = {
@@ -329,6 +339,7 @@ resource "aws_iam_role" "ecs_task_role" {
   })
 }
 
+# Update ECS Task Definition to ensure compatibility with Fargate
 resource "aws_ecs_task_definition" "ecs_task" {
   family                   = "ecs-task-family"
   network_mode             = "awsvpc"
@@ -341,6 +352,7 @@ resource "aws_ecs_task_definition" "ecs_task" {
   container_definitions = jsonencode([{
     name      = "web-container"
     image     = "salmanp7/react-controller-app:latest"
+    essential = true
     portMappings = [
       {
         containerPort = 80
@@ -364,6 +376,7 @@ resource "aws_ecs_task_definition" "ecs_task" {
   }])
 }
 
+# Update ECS Service for Fargate
 resource "aws_ecs_service" "ecs_service" {
   name            = "ecs-service"
   cluster         = aws_ecs_cluster.ecs_cluster.id
@@ -377,6 +390,7 @@ resource "aws_ecs_service" "ecs_service" {
     assign_public_ip = false
   }
 
+  # Multiple load balancer configurations for different target groups
   load_balancer {
     target_group_arn = aws_lb_target_group.tg_80.arn
     container_name   = "web-container"
