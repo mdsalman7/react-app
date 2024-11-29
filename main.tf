@@ -33,10 +33,10 @@ resource "aws_subnet" "public_1a" {
 
 # Public Subnet 2
 resource "aws_subnet" "public_1b" {
-  vpc_id                = aws_vpc.devops_vpc.id
-  cidr_block            = "10.0.2.0/24"
+  vpc_id                  = aws_vpc.devops_vpc.id
+  cidr_block              = "10.0.2.0/24"
   map_public_ip_on_launch = true
-  availability_zone     = "ap-south-1b"
+  availability_zone       = "ap-south-1b"
   tags = {
     Name = "public-1b"
   }
@@ -118,6 +118,36 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
+# Security Group for ECS
+resource "aws_security_group" "ecs_sg" {
+  vpc_id = aws_vpc.devops_vpc.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "ecs-sg"
+  }
+}
+
 # Load Balancer
 resource "aws_lb" "my_alb" {
   name                        = "my-alb"
@@ -129,23 +159,6 @@ resource "aws_lb" "my_alb" {
   enable_cross_zone_load_balancing = true
   enable_http2                = true
 }
-
-resource "aws_lb_listener" "my_listener" {
-  load_balancer_arn = aws_lb.my_alb.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type = "fixed-response"
-    fixed_response {
-      status_code = 200
-      content_type = "text/plain"  # Mandatory field
-      message_body = "OK"
-    }
-  }
-}
-
-
 
 # Target Group for HTTP (80)
 resource "aws_lb_target_group" "tg_80" {
@@ -180,15 +193,15 @@ resource "aws_lb_target_group" "tg_3000" {
 }
 
 # Load Balancer Listener
-resource "aws_lb_listener" "dev_listener" {
+resource "aws_lb_listener" "my_listener" {
   load_balancer_arn = aws_lb.my_alb.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type             = "fixed-response"
+    type = "fixed-response"
     fixed_response {
-      status_code = 200
+      status_code   = 200
       content_type = "text/plain"
       message_body = "OK"
     }
@@ -209,6 +222,7 @@ resource "aws_lb_listener_rule" "rule_tg_80" {
       values = ["/app1/*"]
     }
   }
+}
 
 # Listener Rule for Target Group tg-3000
 resource "aws_lb_listener_rule" "rule_tg_3000" {
@@ -224,25 +238,25 @@ resource "aws_lb_listener_rule" "rule_tg_3000" {
       values = ["/app2/*"]
     }
   }
+}
 
 # EC2 Instance (Jump Server)
 resource "aws_instance" "jump_server" {
-  ami                  = "ami-0dee22c13ea7a9a67"
-  instance_type        = "t2.micro"
-  subnet_id            = aws_subnet.public_1a.id
-  security_groups      = [aws_security_group.alb_sg.name] # Correct argument
+  ami                    = "ami-0dee22c13ea7a9a67"
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.public_1a.id
+  vpc_security_group_ids = [aws_security_group.alb_sg.id]
   tags = {
     Name = "jump-server"
   }
 }
 
-
 # ECS Instance
 resource "aws_instance" "ecs_instance" {
-  ami             = "ami-0dee22c13ea7a9a67" # Example AMI for ECS
-  instance_type   = "t2.micro"
-  subnet_id       = aws_subnet.private_1a.id
-  security_groups = [aws_security_group.alb_sg.id] # Correct security group
+  ami                    = "ami-0dee22c13ea7a9a67" # Example AMI for ECS
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.private_1a.id
+  vpc_security_group_ids = [aws_security_group.ecs_sg.id]
   tags = {
     Name = "ecs-instance"
   }
@@ -273,7 +287,6 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
   role       = aws_iam_role.ecs_execution_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
-
 
 resource "aws_iam_role" "ecs_task_role" {
   name = "ecs-task-role"
@@ -326,72 +339,6 @@ resource "aws_ecs_task_definition" "ecs_task" {
   }])
 }
 
-resource "aws_lb" "devops_alb" {
-  name               = "my-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups   = [aws_security_group.alb_sg.id]
-  subnets            = [aws_subnet.private_1a.id]
-  enable_deletion_protection = false
-}
-
-resource "aws_lb_target_group" "target_80" {
-  name     = "tg-80"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.devops_vpc.id  # Correct reference
-}
-
-resource "aws_lb_target_group" "target_3000" {
-  name     = "tg-3000"
-  port     = 3000
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.devops_vpc.id  # Correct reference
-}
-
-resource "aws_lb_listener" "devops-listener" {
-  load_balancer_arn = aws_lb.my_alb.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type = "fixed-response"
-    fixed_response {
-      status_code = 200
-      content_type = "text/plain"
-      message_body = "OK"
-    }
-  }
-}
-
-resource "aws_lb_listener_rule" "rule_target_80" {
-  listener_arn = aws_lb_listener.my_listener.arn
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.tg_80.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/app1/*"]
-    }
-  }
-
-resource "aws_lb_listener_rule" "rule_target_3000" {
-  listener_arn = aws_lb_listener.my_listener.arn
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.tg_3000.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/app1/*"]
-    }
-  }
-
 resource "aws_ecs_service" "ecs_service" {
   name            = "ecs-service"
   cluster         = aws_ecs_cluster.ecs_cluster.id
@@ -401,7 +348,7 @@ resource "aws_ecs_service" "ecs_service" {
 
   network_configuration {
     subnets          = [aws_subnet.private_1a.id]
-    security_groups = [aws_security_group.ecs_sg.name]
+    security_groups  = [aws_security_group.ecs_sg.id]
     assign_public_ip = false
   }
 
