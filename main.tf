@@ -287,7 +287,7 @@ resource "aws_instance" "jump_server" {
 
 # ECS Optimized Amazon Linux 2 AMI (EC2)
 resource "aws_instance" "ecs_instance" {
-  ami                    = "ami-0c29476f4e61c9cdb"  # ECS-Optimized Amazon Linux 2 AMI for ap-south-1
+  ami                    = "ami-0dee22c13ea7a9a67"  
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.private_1a.id
   vpc_security_group_ids = [aws_security_group.ecs_sg.id]
@@ -539,23 +539,4 @@ resource "aws_ecs_service" "ecs_service" {
 
   # Ensure the service waits for the capacity provider to be ready
   depends_on = [aws_ecs_cluster_capacity_providers.example]
-}
-
-# Optional: Add CloudWatch Alarms for Auto Scaling
-resource "aws_cloudwatch_metric_alarm" "ecs_asg_high_cpu" {
-  alarm_name          = "ecs-asg-high-cpu"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = "2"
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = "120"
-  statistic           = "Average"
-  threshold           = "80"
-
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.ecs_asg.name
-  }
-
-  alarm_description = "This metric monitors EC2 CPU utilization"
-  alarm_actions     = [] # Optionally add SNS topic or Auto Scaling action
 }
