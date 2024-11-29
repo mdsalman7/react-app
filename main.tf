@@ -338,7 +338,36 @@ resource "aws_iam_role" "ecs_task_role" {
     }]
   })
 }
+# CloudWatch Log Group for ECS Container Logs
+resource "aws_cloudwatch_log_group" "ecs_log_group" {
+  name              = "/ecs/web-container"
+  retention_in_days = 30  # Adjust retention as needed
 
+  tags = {
+    Name        = "ecs-web-container-logs"
+    Environment = "production"
+  }
+}
+
+# Update IAM Role to allow CloudWatch Logs creation
+resource "aws_iam_role_policy" "ecs_cloudwatch_logs_policy" {
+  name = "ecs-cloudwatch-logs-policy"
+  role = aws_iam_role.ecs_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "${aws_cloudwatch_log_group.ecs_log_group.arn}:*"
+      }
+    ]
+  })
+}
 # Update ECS Task Definition to ensure compatibility with Fargate
 resource "aws_ecs_task_definition" "ecs_task" {
   family                   = "ecs-task-family"
