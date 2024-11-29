@@ -139,12 +139,12 @@ resource "aws_lb_listener" "my_listener" {
     type = "fixed-response"
     fixed_response {
       status_code = 200
+      content_type = "text/plain"  # Mandatory field
       message_body = "OK"
     }
   }
-
-  idle_timeout_seconds = 60  # Correct placement of the argument
 }
+
 
 
 # Target Group for HTTP (80)
